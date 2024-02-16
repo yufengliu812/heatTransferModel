@@ -22,7 +22,7 @@ class CellNode(Node):
     def LinkAdjCell(self, adjCellNode):
         self.AdjacentNodes.append(adjCellNode.GetCellNodeIdx())
 
-    def Lind2AdjCell(self, adjCellNode):
+    def Link2AdjCell(self, adjCellNode):
         adjCellNode.AdjacentNodes.apped(self.GetCellNodeIdx())
 
     def CellThermalResist(self, adjCellNode):

@@ -304,25 +304,306 @@ class ThermalGraph:
                 return False
         return True
     
-def TimeIntegralUnitImplicit(self, dt, Q_EQC, Q_Joul=0, flowrate=20, Tcool = None, Pcool = None):
-    if self.CehckCool(Tcool, Pcool):
-        self.IntegralUnit(dt, Q_EQC, Q_Joul, flowrate, Tcool, Pcool)
-        self.HeatRejCal(flowrate)
-        self.AddSimTimeUnit(dt)
+    def TimeIntegralUnitImplicit(self, dt, Q_EQC, Q_Joul=0, flowrate=20, Tcool = None, Pcool = None):
+        if self.CehckCool(Tcool, Pcool):
+            self.IntegralUnit(dt, Q_EQC, Q_Joul, flowrate, Tcool, Pcool)
+            self.HeatRejCal(flowrate)
+            self.AddSimTimeUnit(dt)
 
-def ConvertArr(self):
-    self.CellTempArr = np.array(self.CellTempArr)
-    self.CoolTempArr = np.array(self.CoolTempArr)
-    self.HeatRejArr = np.array(self.HeatRejArr)
-    self.SimTime = np.array(self.SimTime)
+    def ConvertArr(self):
+        self.CellTempArr = np.array(self.CellTempArr)
+        self.CoolTempArr = np.array(self.CoolTempArr)
+        self.HeatRejArr = np.array(self.HeatRejArr)
+        self.SimTime = np.array(self.SimTime)
 
-def TimeIntegralConstParam(self, dt, StopTime, Q_EQC, Q_Joul = 0, flowrate = 20, Tcool = 20, Pcool = None):
-    if self.b_CoolPower:
-        Tcool = None
-    else:
-        Pcool = None
-    
-    
-
-
+    def TimeIntegralConstParam(self, dt, StopTime, Q_EQC, Q_Joul = 0, flowrate = 20, Tcool = 20, Pcool = None):
+        if self.b_CoolPower:
+            Tcool = None
+        else:
+            Pcool = None
         
+        # Thermal simulation
+        for i in range(1, int(StopTime/dt) + 1):
+            if(self.simStatus < 1):
+                self.TimeIntegralUnitImplicit(dt, Q_EQC = Q_EQC, Q_Joul = Q_Joul, flowarte = flowrate, Tcool = Tcool, Pcool = Pcool)
+        if(self.simStatus < 1):
+            self.simStatus = 1
+
+        self.OnSimComplete()
+
+    def OnSimComplete(self):
+        self.ConvertArr()
+        self.CreateTDF()
+
+    def CreateTDF(self):
+        self.Timer.Start("Therm_TDFTime")
+        N1, N2, N3 = self.N3D
+        index_Tcell = []
+
+        for i in range(N1):
+            for j in range(N2):
+                for k in range(N3):
+                    Tcell_str = "Tcell" + "_" + str(i+1) + "_" + str(j+1) + "_" + str(k+1)
+                    index_Tcell.append(Tcell_str)
+                    if i == N1 -1 and j == 0 and k == N3-1:
+                        index_Therm = Tcell_str
+        
+        index_Tcell.append("Cold Plate")
+        index_Tcell.append("Coolant")
+        df = pd.DataFrame(self.CellTempArr, columns = index_Tcell)
+        self.TDF = df
+        df['Time'] = self.SimTime
+        df['Thermistor'] = df[index_Therm]
+        df['Max'] = df.drop(["Time", "Cold Plate", "Coolant"], axis = 1).max(axis = 1)
+        df['Min'] = df.drop(["Time", "Cold Plate", "Coolant"], axis = 1).min(axis = 1)
+        self.Timer.Stop("Therm_TDFTime")
+        return df
+    
+    def GetCellTempAvg(self):
+        CellTempArr = self.CellTempArr
+        if(isinstance(CellTempArr, list)):
+            Tcells = CellTempArr[-1]
+
+        elif(isinstance(CellTempArr, np.ndarray)):
+            Tcells = CellTempArr[:,-1]
+
+        else:
+            raise TypeError("Incorrect type of self.CellTempArr")
+        Tcell_avg = np.mean(Tcells)
+        return Tcell_avg
+    
+    def GetCellTempMax(self):
+        CellTempArr = self.CellTempArr
+        if(isinstance(CellTempArr, list)):
+            Tcells == CellTempArr[-1]
+
+        elif(isinstance(CellTempArr, np.ndarray)):
+            Tcells = CellTempArr[:,-1]
+
+        else:
+            raise TypeError("Inccorrect type of self.CellTempArr")
+        Tcell_max = np.max(Tcells)
+        return Tcell_max
+
+    
+    def GetCellTempMin(self):
+        CellTempArr = self.CellTempArr
+        if(isinstance(CellTempArr, list)):
+            Tcells == CellTempArr[-1]
+
+        elif(isinstance(CellTempArr, np.ndarray)):
+            Tcells = CellTempArr[:,-1]
+
+        else:
+            raise TypeError("Inccorrect type of self.CellTempArr")
+        Tcell_min = np.min(Tcells)
+        return Tcell_min
+
+class ThermalGraphPrismatic(ThermalGraph):
+    def __init__(self, N3D, battConfig, IndexJoul=None, b_Cooling=True, b_Wall=False, b_Therm=False, b_CoolPower=False, Timer=None):
+        super().__init__(N3D, 
+                         battConfig, 
+                         IndexJoul = IndexJoul, 
+                         b_Cooling = b_Cooling, 
+                         b_Wall = b_Wall, 
+                         b_Therm = b_Therm, 
+                         b_CoolPower = b_CoolPower, 
+                         Timer = Timer)
+        
+    def CalculateA3D(self, L3D, N3D, Loc3D):
+        dL3D = L3D/N3D
+        dx, dy, dz = dL3D
+        Ayz = dy*dz
+        Axz = dx*dz
+        Axy = dx*dy
+        Axyz = np.array([Ayz, Axz, Axy])
+        return Axyz
+    
+    def CalculateDmass(self, L3D, N3D, Loc3D, mass):
+        return mass/N3D[0]/N3D[1]/N3D[2]
+    
+    def AddCellNode(self, mass, CellThermProperty, dL3D, Loc3D, A3D, idx3D, r_EQC, r_Joul):
+        cp = CellThermProperty['cp']
+        k3D = CellThermProperty['k3D']
+        kt_jr_ins = CellThermProperty['kt_jr_ins']
+        node = Node.CellNodePrismatic(mass, cp, k3D, Loc3D, dL3D, A3D, idx3D, kt_jr_ins, 
+                                      r_EQC = r_EQC, r_Joul = r_Joul)
+        return node
+    
+    def CreateCellMap(self, i, j, k):
+        node = self.CellNodeArr[i, j, k]
+        if(i != 0):
+            node_down = self.CellNodeArr[i-1, j, k]
+            #print(f"Cell {(i,j,k)} Linked to Cell {(i-1, j, k)}")
+            node.Link2AdjCell(node_down)
+            node.LinkAdjCell(node_down)
+        if(j != 0):
+            node_down = self.CellNodeArr[i, j-1, k]
+            #print(f"Cell {(i,j,k)} Linked to Cell {(i,j-1,k)}")
+            node.Link2AdjCell(node_down)
+            node.LinkAdjCell(node_down)
+        if(k != 0):
+            node_down = self.CellNodeArr[i, j, k-1]
+            #print(f"Cell {(i,j,k)} Linked to Cell {(i,j,k-1)}")
+            node.Link2AdjCell(node_down)
+            node.LinkAdjCell(node_down)
+
+
+class ThermalGraphPrismaticBottom(ThermalGraphPrismatic):
+    def __init__(self, N3D, battConfig, IndexJoul=None, b_Cooling=True, b_Wall=False, b_Therm=False, b_CoolPower=False, Timer=None):
+            super().__init__(N3D, 
+                            battConfig, 
+                            IndexJoul = IndexJoul, 
+                            b_Cooling = b_Cooling, 
+                            b_Wall = b_Wall, 
+                            b_Therm = b_Therm, 
+                            b_CoolPower = b_CoolPower, 
+                            Timer = Timer)
+            
+    def AddCPNode(self, CPThermProperty):
+        mass = CPThermProperty['mass'] 
+        cp = CPThermProperty['cp']
+        Rt_tglue = CPThermProperty['Rt_tglue']
+        Rt_pc = CPThermProperty['Rt_pc']
+        Rt_Cool_LUT = CPThermProperty['Rt_Cool_LUT']
+        bp_flowrate = CPThermProperty['bp_flowrate']
+        CPnode = Node.ColdPlateNode(mass, cp, Rt_tglue, Rt_pc, Rt_Cool_LUT, bp_flowrate)
+        return CPnode
+    
+    def CheckifCool(self, key):
+        """ Check if a node with key (i,j,k) if a coolant touched cell and get contact area"""
+        i, j, k = key
+        b_Cool = k == 0
+        if(b_Cool):
+            node = self.CellNodeArr[i,j,k]
+            node.GetA2Cool(2)
+        return b_Cool
+    
+class ThermalGraphCyl(ThermalGraph):
+    def __init__(self, N3D, battConfig, IndexJoul=None, b_Cooling=True, b_Wall=False, b_Therm=False, b_CoolPower=False, Timer=None):
+                super().__init__(N3D, 
+                                battConfig, 
+                                IndexJoul = IndexJoul, 
+                                b_Cooling = b_Cooling, 
+                                b_Wall = b_Wall, 
+                                b_Therm = b_Therm, 
+                                b_CoolPower = b_CoolPower, 
+                                Timer = Timer)
+                
+    def CalculateA3D(self, L3D, N3D, Loc3D):
+        dL3D = L3D/N3D
+        dr, dphi, dz = dL3D
+        r, phi, z = Loc3D
+        Apz = r*dphi*dz
+        Arz = dr*dz
+        Arp = dphi/2*((r+dr/2)**2 - (r-dr/2)**2)
+        Arpz = np.array([Apz, Arz, Arp])
+        return Arpz
+    
+    def CalculateDmass(self, L3D, N3D, Loc3D, mass):
+        rAll, _, zAll = L3D
+        dL3D = L3D/N3D
+        dr, dphi, dz = dL3D
+        r, phi, z = Loc3D
+
+        totalV = math.pi*rAll**2*zAll
+        Arp = dphi/2*((r+dr/2)**2 - (r-dr/2)**2)
+        dV = Arp*dz
+        return mass*dV/totalV
+    
+    def AddCellNode(self, mass, CellThermProperty, dL3D, Loc3D, A3D, idx3D, r_EQC, r_Joul):
+        cp = CellThermProperty['cp']
+        k3D = CellThermProperty['k3D']
+        kt_jr_ins = CellThermProperty['kt_jr_ins']
+        node = Node.CellNodePrismatic(mass, cp, k3D, Loc3D, dL3D, A3D, idx3D, kt_jr_ins, 
+                                      r_EQC = r_EQC, r_Joul = r_Joul)
+        return node
+    
+    def CreateCellMap(self, i, j, k):
+        Nphi = self.N3D[1]
+        node = self.CellNodeArr[i, j, k]
+        if(i != 0):
+            node_down = self.CellNodeArr[i-1, j, k]
+            #print(f"Cell {(i,j,k)} Linked to Cell {(i-1, j, k)}")
+            node.Link2AdjCell(node_down)
+            node.LinkAdjCell(node_down)
+        
+        if(j != 0):
+            node_down = self.CellNodeArr[i, j-1, k]
+            #print(f"Cell {(i,j,k)} Linked to Cell {(i,j-1,k)}")
+            node.Link2AdjCell(node_down)
+            node.LinkAdjCell(node_down)
+        elif(j == Nphi-1):
+            node_up = self.CellNodeArr[i, 0, k]
+            #print(f"Cell {(i,j,k)} Linked to Cell {(i-1, j, k)}")
+            node.Link2AdjCell(node_up)
+            node.LinkAdjCell(node_up)
+
+        if(k != 0):
+            node_down = self.CellNodeArr[i, j, k-1]
+            #print(f"Cell {(i,j,k)} Linked to Cell {(i,j,k-1)}")
+            node.Link2AdjCell(node_down)
+            node.LinkAdjCell(node_down)
+
+
+class ThermalGraphCylBottom(ThermalGraphCyl):
+    def __init__(self, N3D, battConfig, IndexJoul=None, b_Cooling=True, b_Wall=False, b_Therm=False, b_CoolPower=False, Timer=None):
+            super().__init__(N3D, 
+                            battConfig, 
+                            IndexJoul = IndexJoul, 
+                            b_Cooling = b_Cooling, 
+                            b_Wall = b_Wall, 
+                            b_Therm = b_Therm, 
+                            b_CoolPower = b_CoolPower, 
+                            Timer = Timer)
+    
+    def AddCPNode(self, CPThermProperty):
+        mass = CPThermProperty['mass'] 
+        cp = CPThermProperty['cp']
+        Rt_tglue = CPThermProperty['Rt_tglue']
+        Rt_pc = CPThermProperty['Rt_pc']
+        Rt_Cool_LUT = CPThermProperty['Rt_Cool_LUT']
+        bp_flowrate = CPThermProperty['bp_flowrate']
+        CPnode = Node.ColdPlateNode(mass, cp, Rt_tglue, Rt_pc, Rt_Cool_LUT, bp_flowrate)
+        return CPnode
+    
+    def CheckifCool(self, key):
+        """ Check if a node with key (i,j,k) if a coolant touched cell and get contact area"""
+        i, j, k = key
+        b_Cool = k == 0
+        if(b_Cool):
+            node = self.CellNodeArr[i,j,k]
+            b_Cool = (b_Cool and node.GetA2Cool(2))
+        return b_Cool
+
+
+
+class ThermalGraphCylBottom(ThermalGraphCyl):
+    def __init__(self, N3D, battConfig, IndexJoul=None, b_Cooling=True, b_Wall=False, b_Therm=False, b_CoolPower=False, Timer=None):
+            super().__init__(N3D, 
+                            battConfig, 
+                            IndexJoul = IndexJoul, 
+                            b_Cooling = b_Cooling, 
+                            b_Wall = b_Wall, 
+                            b_Therm = b_Therm, 
+                            b_CoolPower = b_CoolPower, 
+                            Timer = Timer)
+    
+    def AddCPNode(self, CPThermProperty):
+        mass = CPThermProperty['mass'] 
+        cp = CPThermProperty['cp']
+        Rt_tglue = CPThermProperty['Rt_tglue']
+        Rt_pc = CPThermProperty['Rt_pc']
+        Rt_Cool_LUT = CPThermProperty['Rt_Cool_LUT']
+        bp_flowrate = CPThermProperty['bp_flowrate']
+        CPnode = Node.ColdPlateNode(mass, cp, Rt_tglue, Rt_pc, Rt_Cool_LUT, bp_flowrate)
+        return CPnode
+    
+    def CheckifCool(self, key):
+        """ Check if a node with key (i,j,k) if a coolant touched cell and get contact area"""
+        i, j, k = key
+        b_Cool = k == self.N3D[0] - 1
+        if(b_Cool):
+            node = self.CellNodeArr[i,j,k]
+            b_Cool = (b_Cool and node.GetA2Cool(0, self.phi_range, self.z_range))
+        return b_Cool
